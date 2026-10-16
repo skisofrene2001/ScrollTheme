@@ -2,6 +2,8 @@
 
 **Démo : https://skisofrene2001.github.io/ScrollTheme/**
 
+![ScrollTheme avec le thème Ember](docs/images/hero.png)
+
 Un sélecteur de thème en forme de collier : une tige sur laquelle sont enfilées des perles, une par palette.
 On fait défiler la tige pour changer d'ambiance, et on tourne la perle active comme un volant pour échanger les rôles de ses couleurs.
 
@@ -15,6 +17,14 @@ Un seul fichier, `index.html` (HTML, CSS et JavaScript sans dépendance). Ouvrez
 | Clic sur une perle | Aller à ce thème |
 | Tourner autour de la perle active, clic, Maj + molette, ↑ ↓ | Faire tourner le volant : chaque couleur change de rôle |
 | Soleil / lune, Page↑ Page↓ | Jour ou nuit |
+
+## En images
+
+| Perle tournée d'un cran : les couleurs changent de rôle | Tige qui défile, Midnight en mode nuit |
+| --- | --- |
+| ![Ember après une rotation : fond noir, cartes orange](docs/images/volant.png) | ![Midnight sur la tige qui défile, en mode nuit](docs/images/nuit.png) |
+| **Tige courbe et perles en anneaux** | **Palette « Your own » modifiable, perles proportionnelles** |
+| ![Aubergine Bloom sur la tige courbe, perles en anneaux](docs/images/anneaux.png) | ![Éditeur de la palette Your own](docs/images/your-own.png) |
 
 ## Comment ça marche
 
