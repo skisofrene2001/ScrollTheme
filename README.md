@@ -1,5 +1,7 @@
 # ScrollTheme
 
+**Démo : https://skisofrene2001.github.io/ScrollTheme/**
+
 Un sélecteur de thème en forme de collier : une tige sur laquelle sont enfilées des perles, une par palette.
 On fait défiler la tige pour changer d'ambiance, et on tourne la perle active comme un volant pour échanger les rôles de ses couleurs.
 
