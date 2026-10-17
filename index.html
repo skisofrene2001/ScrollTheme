@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ScrollTheme</title>
+<script>
+  // Applique le dernier thème enregistré avant le premier affichage (évite le flash d'Ember au chargement)
+  try {
+    const v = JSON.parse(localStorage.getItem("scrollTheme.vars"));
+    for (const k in v) document.documentElement.style.setProperty("--" + k, v[k]);
+  } catch {}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -93,6 +100,7 @@
   .current span { color: var(--muted); font-size: 13px; }
   .current .warn { color: #b3261e; background: color-mix(in srgb, #e24b4a 14%, var(--surface)); font: 500 11px var(--mono);
                    padding: 4px 8px; border-radius: 99px; }
+  .current .warn.soft { color: color-mix(in srgb, #ba7517 70%, var(--ink)); background: color-mix(in srgb, #ef9f27 16%, var(--surface)); }
   .roles { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font: 500 10px/1 var(--mono);
            letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
   .roles span { display: inline-flex; align-items: center; gap: 6px; }
@@ -198,7 +206,7 @@
 <body>
   <header class="topbar" id="topbar">
     <div class="brand"><i>N</i>NEXORA</div>
-    <div class="st st--compact" id="stCompact" aria-label="Thème (compact)"></div>
+    <div class="st st--compact" id="stCompact" tabindex="-1" aria-label="Thème (compact)"></div>
     <div class="spacer"></div>
     <span class="pill">Full screen</span>
     <span class="clock" id="clock"></span>
@@ -222,7 +230,7 @@
         </div>
         <div class="editor" id="editor" hidden></div>
         <div class="hint">
-          Molette, glisser, ← → : changer de thème · clic sur une perle : y aller<br>
+          Glisser, ← →, molette (après un clic sur la tige) : changer de thème · clic sur une perle : y aller<br>
           Perle active : tourner autour, clic, Maj + molette, ↑ ↓ : faire tourner le volant<br>
           Soleil / lune, Page↑ Page↓ : jour ou nuit
         </div>
@@ -321,11 +329,16 @@ const lum = h => {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-// Texte lisible sur `bg` : la couleur de la palette la plus contrastée si elle suffit, sinon noir ou blanc
-const readable = (bg, sw = []) => {
-  const best = sw.reduce((a, c) => contrast(c, bg) > contrast(a, bg) ? c : a, sw[0] || bg);
-  if (contrast(best, bg) >= 7) return best;
-  return contrast("#0b0b0b", bg) >= contrast("#ffffff", bg) ? "#0b0b0b" : "#ffffff";
+// Texte lisible sur `bg` : noir ou blanc, légèrement teinté par le fond tant que le contraste reste ≥ 7
+const readable = bg => {
+  const base = contrast("#0b0b0b", bg) >= contrast("#ffffff", bg) ? "#0b0b0b" : "#ffffff";
+  const tinted = mix(base, bg, 0.1);
+  return contrast(tinted, bg) >= 7 ? tinted : base;
+};
+// Mélange `fg` vers `bg` le plus possible (jusqu'à `t`) sans descendre sous `min` de contraste sur `on`
+const soften = (fg, bg, t, on, min) => {
+  for (; t > 0; t -= 0.02) { const c = mix(fg, bg, t); if (contrast(c, on) >= min) return c; }
+  return fg;
 };
 const blend = (A, B, t) => t <= 0 ? A : Object.fromEntries(Object.keys(A).map(k => [k, mix(A[k], B[k], t)]));
 
@@ -339,14 +352,14 @@ function derive(sw, r, light) {
   let bg = at(0), dark = at(2);
   const accent = at(1);
   if (light && (light < 0 ? lum(bg) < lum(dark) : lum(bg) > lum(dark))) [bg, dark] = [dark, bg];
-  const ink = readable(bg, sw);
+  const ink = readable(bg), surface = mix(bg, "#ffffff", lum(bg) > 0.3 ? 0.6 : 0.05);
   const v = {
-    bg, ink, accent, dark,
+    bg, ink, accent, dark, surface,
     "accent-2": k > 3 ? at(3) : mix(accent, dark, 0.45),
-    surface: mix(bg, "#ffffff", lum(bg) > 0.3 ? 0.6 : 0.05),
-    muted: mix(ink, bg, 0.42),
+    // texte atténué : aussi pâle que possible, mais lisible (4,5) sur le fond comme sur la surface
+    muted: soften(ink, bg, 0.42, contrast(bg, ink) < contrast(surface, ink) ? bg : surface, 4.5),
     line: mix(ink, bg, 0.85),
-    "on-dark": readable(dark, sw),
+    "on-dark": readable(dark),
     "on-accent": readable(accent),
   };
   v["on-accent-2"] = readable(v["accent-2"]);
@@ -360,18 +373,20 @@ function varsFor(i, r, light) {
   const at = rr => m ? blend(derive(sw, rr, 0), derive(sw, rr, m), lt) : derive(sw, rr, 0);
   return blend(at(f), at(f + 1), ease(r - f));
 }
-// Garde-fou : ce qui deviendrait illisible
+// Garde-fou : [rôle, contraste, bloquant]. Bloquant = presque invisible, le cran est sauté.
+// Non bloquant = accent sous 3 : 1, correct pour un bouton plein mais trop pâle pour un trait fin ou une icône.
 function issues(v) {
   const out = [];
   const c1 = contrast(v.ink, v.bg), c2 = contrast(v.accent, v.bg), c3 = contrast(v.dark, v.bg);
-  if (c1 < 4.5) out.push(["texte", c1]);
-  if (c2 < 1.4) out.push(["accent", c2]);
-  if (c3 < 1.15) out.push(["cartes", c3]);
+  if (c1 < 4.5) out.push(["texte", c1, true]);
+  if (c2 < 1.4) out.push(["accent", c2, true]);
+  else if (c2 < 3) out.push(["accent pâle", c2, false]);
+  if (c3 < 1.15) out.push(["cartes", c3, true]);
   return out;
 }
 
 // ---------- État partagé ----------
-const STORE = "scrollTheme.v3";
+const STORE = "scrollTheme.v3", VARS_STORE = "scrollTheme.vars";
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(STORE)) || {}; } catch {}
 if (Array.isArray(saved.custom) && saved.custom.length >= 3 && saved.custom.length <= 6 &&
@@ -381,16 +396,20 @@ const S = {
   target: clamp(+saved.theme || 0),
   rot: THEMES.map((_, i) => Math.round(+(saved.rot || [])[i] || 0)),
   light: [-1, 0, 1].includes(saved.light) ? saved.light : 0,
-  opts: Object.assign({ rod: "straight", bead: "pie", roles: true, guard: true, wave: false, compact: true, auto: false, hour: null }, saved.opts),
+  // sur petit écran, la tige qui défile évite que les perles se chevauchent
+  opts: Object.assign({ rod: innerWidth < 600 ? "carousel" : "straight", bead: "pie", roles: true, guard: true, wave: false,
+                        compact: true, auto: false }, saved.opts, { hour: null }),
   pull: -1, lastDir: 1,
 };
 S.pos = S.target; S.committed = Math.round(S.target);
 S.rotPos = [...S.rot]; S.lightPos = S.light;
 
+// L'heure simulée sert aux essais : elle n'est pas enregistrée
 function persist() {
+  wake();
   try {
     localStorage.setItem(STORE, JSON.stringify({ theme: Math.round(S.target), rot: S.rot.map(Math.round),
-      light: S.light, custom: THEMES[CUSTOM].swatch, opts: S.opts }));
+      light: S.light, custom: THEMES[CUSTOM].swatch, opts: { ...S.opts, hour: null } }));
   } catch {}
 }
 
@@ -403,7 +422,7 @@ function commitTheme() {
 }
 function select(i) { manual(); S.target = clamp(i); commitTheme(); }
 function snapTheme() { S.target = Math.round(S.target); commitTheme(); }
-const isBad = (i, r) => issues(varsFor(i, r, S.light)).length > 0;
+const isBad = (i, r) => issues(varsFor(i, r, S.light)).some(x => x[2]);
 // Pose la rotation sur un cran ; avec le garde-fou, saute les crans illisibles dans le sens du geste
 function settleRot(i, r, dir) {
   const k = THEMES[i].swatch.length;
@@ -416,7 +435,7 @@ function setLight(v) { manual(); S.light = S.light === v ? 0 : v; persist(); }
 
 // Transition en vague : le nouveau thème part de la perle et s'étend en cercle
 function waveTo(idx) {
-  const go = () => { S.committed = idx; applyVars(); };
+  const go = () => { S.committed = idx; applyVars(); wake(); };
   if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches) return go();
   const { x, y } = main.clientPoint(idx);
   const R = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
@@ -440,7 +459,7 @@ function autoTick() {
   const idx = Math.round(S.target);
   if (idx !== S.committed) { if (S.opts.wave) waveTo(idx); else S.committed = idx; }
 }
-setInterval(autoTick, 20000);
+setInterval(() => { autoTick(); wake(); }, 20000);
 
 // ---------- Dessin d'une perle (SVG, rayon 50) ----------
 const pt = (deg, r) => [r * Math.sin(deg * Math.PI / 180), -r * Math.cos(deg * Math.PI / 180)];
@@ -498,7 +517,7 @@ class Rail {
       el.append(b);
       return { el: b, spin: b.querySelector(".spin"), thru: b.querySelector(".thru"), gap: b.querySelector(".gap"), halo: b.querySelector(".halo"), html: "" };
     });
-    new ResizeObserver(() => { this.W = el.clientWidth || 1; this.rodKey = ""; }).observe(el);
+    new ResizeObserver(() => { this.W = el.clientWidth || 1; this.visible = el.clientWidth > 0; this.rodKey = ""; wake(); }).observe(el);
     this.W = el.clientWidth || 1;
     this.bind();
   }
@@ -533,7 +552,7 @@ class Rail {
   }
 
   render() {
-    if (!this.el.offsetParent) return;
+    if (!this.visible) return;
     const mode = this.mode(), g = this.compact ? 2.5 : 3.5;
     this.el.classList.toggle("is-carousel", mode === "carousel");
     this.el.style.setProperty("--size", this.base + "px");
@@ -606,6 +625,7 @@ class Rail {
     el.addEventListener("pointermove", e => {
       const d = this.drag;
       if (!d) return;
+      wake();
       if (d.wheel) {
         const w = d.wheel, a = angleAt(e, w.c);
         const da = Math.atan2(Math.sin(a - w.last), Math.cos(a - w.last)); // passage -π / π
@@ -634,9 +654,13 @@ class Rail {
     el.addEventListener("pointerup", end);
     el.addEventListener("pointercancel", end);
 
+    // La molette verticale ne pilote la tige qu'une fois celle-ci active (clic ou Tab) :
+    // sinon elle fait défiler la page comme d'habitude. Molette horizontale et Maj + molette : toujours.
     el.addEventListener("wheel", e => {
-      e.preventDefault();
-      const delta = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * (e.deltaMode === 1 ? 30 : 1);
+      const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      if (!horizontal && !e.shiftKey && !el.contains(document.activeElement)) return;
+      e.preventDefault(); wake();
+      const delta = (horizontal ? e.deltaX : e.deltaY) * (e.deltaMode === 1 ? 30 : 1);
       const a = Math.round(S.target);
       if (e.shiftKey && !this.compact) {                 // Maj + molette : tourner le volant
         S.rot[a] += delta * 0.006;
@@ -670,7 +694,7 @@ const main = new Rail($("stMain"), false);
 const rails = [main, new Rail($("stCompact"), true)];
 
 // ---------- Application du thème ----------
-let lastVars = "";
+let lastVars = "", lastV = null;
 function currentVars() {
   if (S.opts.wave) return varsFor(S.committed, S.rotPos[S.committed], S.lightPos);
   const i = Math.floor(S.pos), j = Math.min(i + 1, N - 1);
@@ -679,9 +703,16 @@ function currentVars() {
 function applyVars() {
   const v = currentVars(), str = JSON.stringify(v);
   if (str === lastVars) return;
-  lastVars = str;
+  lastVars = str; lastV = v;
   for (const k in v) root.style.setProperty("--" + k, v[k]);
-  renderContrast(v);
+}
+// Une fois le thème posé : tableau des contrastes, et copie des variables pour le prochain chargement
+let settledVars = "";
+function settle() {
+  if (!lastV || lastVars === settledVars) return;
+  settledVars = lastVars;
+  renderContrast(lastV);
+  try { localStorage.setItem(VARS_STORE, lastVars); } catch {}
 }
 
 // Contrastes en direct (WCAG : 4,5 pour du texte, 3 pour un élément d'interface)
@@ -708,14 +739,16 @@ let infoKey = "", editorKey = "";
 function updateInfo() {
   const cur = S.opts.wave ? S.committed : Math.round(S.pos);
   const v = varsFor(cur, Math.round(S.rotPos[cur]), S.light), bad = issues(v);
-  S.bad = bad.length > 0;
+  S.bad = bad.some(x => x[2]);
   const key = cur + "|" + bad.map(b => b[0] + b[1].toFixed(1)).join();
   if (key !== infoKey) {
     infoKey = key;
     $("curName").textContent = $("chip").textContent = THEMES[cur].name;
     $("curDesc").textContent = THEMES[cur].desc;
     $("warn").hidden = !bad.length;
-    $("warn").textContent = bad.map(([w, c]) => `${w} peu lisible · ${c.toFixed(1).replace(".", ",")} : 1`).join(" — ");
+    $("warn").classList.toggle("soft", !S.bad);
+    $("warn").textContent = bad.map(([w, c, hard]) =>
+      `${w}${hard ? " peu lisible" : ""} · ${c.toFixed(1).replace(".", ",")} : 1`).join(" — ");
     main.el.setAttribute("aria-valuenow", cur);
     main.el.setAttribute("aria-valuetext", THEMES[cur].name);
   }
@@ -744,10 +777,10 @@ editor.addEventListener("click", e => {
   S.pull = -1; persist();
 });
 // survoler une couleur la fait sortir de la perle
-editor.addEventListener("pointerover", e => { const s = e.target.closest(".sw"); S.pull = s ? +s.dataset.j : -1; });
-editor.addEventListener("pointerleave", () => { S.pull = -1; });
-editor.addEventListener("focusin", e => { if (e.target.dataset.j) S.pull = +e.target.dataset.j; });
-editor.addEventListener("focusout", () => { S.pull = -1; });
+editor.addEventListener("pointerover", e => { const s = e.target.closest(".sw"); S.pull = s ? +s.dataset.j : -1; wake(); });
+editor.addEventListener("pointerleave", () => { S.pull = -1; wake(); });
+editor.addEventListener("focusin", e => { if (e.target.dataset.j) S.pull = +e.target.dataset.j; wake(); });
+editor.addEventListener("focusout", () => { S.pull = -1; wake(); });
 
 // ---------- Réglages ----------
 function syncOpts() {
@@ -780,16 +813,23 @@ const tickClock = () => { clockEl.textContent = new Date().toLocaleTimeString("f
 tickClock(); setInterval(tickClock, 1000);
 
 // ---------- Boucle : chaque valeur affichée rejoint sa cible en douceur ----------
-const approach = (v, t, k) => Math.abs(t - v) < 0.001 ? t : v + (t - v) * k;
-(function frame() {
+// Elle s'arrête dès que tout est posé, et wake() la relance au premier changement.
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const approach = (v, t, k) => Math.abs(t - v) < 0.001 || reduceMotion.matches ? t : v + (t - v) * k;
+let running = false;
+function frame() {
   S.pos = approach(S.pos, S.target, 0.16);
   S.rot.forEach((r, i) => { S.rotPos[i] = approach(S.rotPos[i], r, 0.18); });
   S.lightPos = approach(S.lightPos, S.light, 0.14);
   applyVars();
   updateInfo();
   rails.forEach(r => r.render());
+  const settled = S.pos === S.target && S.lightPos === S.light && S.rot.every((r, i) => S.rotPos[i] === r);
+  if (settled && !rails.some(r => r.drag)) { running = false; settle(); return; }
   requestAnimationFrame(frame);
-})();
+}
+function wake() { if (!running) { running = true; requestAnimationFrame(frame); } }
+wake();
 </script>
 </body>
 </html>

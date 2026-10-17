@@ -13,7 +13,7 @@ Un seul fichier, `index.html` (HTML, CSS et JavaScript sans dépendance). Ouvrez
 
 | Geste | Effet |
 | --- | --- |
-| Molette, glisser, ← → | Changer de thème (fondu continu, puis aimantation sur la perle la plus proche) |
+| Glisser, ← →, molette (après un clic sur la tige) | Changer de thème (fondu continu, puis aimantation sur la perle la plus proche) |
 | Clic sur une perle | Aller à ce thème |
 | Tourner autour de la perle active, clic, Maj + molette, ↑ ↓ | Faire tourner le volant : chaque couleur change de rôle |
 | Soleil / lune, Page↑ Page↓ | Jour ou nuit |
